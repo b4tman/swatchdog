@@ -4,6 +4,7 @@ use parse_duration::parse as parse_duration;
 use pinger::ping;
 use reqwest::blocking::Client;
 use reqwest::Method;
+use std::cmp::min;
 use std::marker::PhantomData;
 use std::thread;
 use std::{
@@ -45,13 +46,23 @@ fn get_uptime() -> String {
     format!("up {}", format_duration(dur))
 }
 
+fn ping_host(host: &str) -> Result<Duration, Nothing> {
+    let stream = ping(host.into(), None);
+    if stream.is_err() {
+        return Err(PhantomData);
+    }
+    if let Ok(pinger::PingResult::Pong(duration, _)) = stream.unwrap().recv() {
+        return Ok(duration);
+    }
+    Err(PhantomData)
+}
+
 fn info_getter_thread(
     host: String,
     interval: Duration,
     tx: mpsc::SyncSender<Message>,
     shutdown_rx: mpsc::Receiver<Nothing>,
 ) {
-    let stream = ping(host, None).expect("Error pinging");
     let mut measure_time = Duration::new(0, 0);
     loop {
         match shutdown_rx.recv_timeout(interval - measure_time) {
@@ -60,16 +71,20 @@ fn info_getter_thread(
             }
             Err(RecvTimeoutError::Timeout) => {
                 let start = Instant::now();
-                if let Ok(pinger::PingResult::Pong(duration, _)) = stream.recv() {
-                    let end = Instant::now();
-                    measure_time = end - start;
 
-                    let uptime = get_uptime();
-                    let ping = format!("{:?}", duration);
-                    let res = tx.send(Message::HostInfo(uptime, ping));
-                    if res.is_err() {
-                        break;
-                    }
+                let mut ping = String::new();
+                let ping_result = ping_host(&host);
+                if let Ok(duration) = ping_result {
+                    ping = format!("{:?}", duration);
+                }
+                let uptime = get_uptime();
+
+                let end = Instant::now();
+                measure_time = min(end - start, interval - Duration::from_millis(1));
+
+                let res = tx.send(Message::HostInfo(uptime, ping));
+                if res.is_err() {
+                    break;
                 }
             }
         }
