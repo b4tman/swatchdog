@@ -1,67 +1,58 @@
 use std::{sync::mpsc, time::Duration};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
-use flexi_logger::{
-    AdaptiveFormat, Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, LoggerHandle, Naming,
-};
 use parse_duration::parse as parse_duration;
 use reqwest::Method;
 
 mod watchdog;
 use watchdog::{Nothing, Watchdog};
 
+mod logger;
+use logger::create_logger;
+
+#[cfg(windows)]
+mod serivce;
+
 #[derive(Parser, Debug, Clone)]
 #[command(author, version)]
 struct Args {
+    /// target url
     #[arg(short, long)]
     url: reqwest::Url,
+
+    /// http method
     #[arg(long, default_value = "GET")]
     method: Method,
+
+    /// heartbeats interval
     #[arg(long, default_value = "60s", value_parser = parse_duration)]
     interval: Duration,
+
+    /// verbose messages
     #[arg(long, default_value = "false")]
     verbose: bool,
-}
 
-fn create_logger(verbose: bool) -> Result<LoggerHandle> {
-    let stdout_level = if verbose {
-        Duplicate::Info
-    } else {
-        Duplicate::Warn
-    };
-    Logger::try_with_str("info")
-        .context("default logging level invalid")?
-        .log_to_file(
-            FileSpec::default().directory(
-                std::env::current_exe()
-                    .context("can't get current exe path")?
-                    .parent()
-                    .context("can't get parent folder")?,
-            ),
-        )
-        .rotate(
-            Criterion::Age(Age::Day),
-            Naming::Timestamps,
-            Cleanup::KeepLogFiles(4),
-        )
-        .format(flexi_logger::detailed_format)
-        .adaptive_format_for_stdout(AdaptiveFormat::Detailed)
-        .print_message()
-        .duplicate_to_stdout(stdout_level)
-        .write_mode(flexi_logger::WriteMode::Async)
-        .start_with_specfile(
-            std::env::current_exe()
-                .context("can't get current exe path")?
-                .with_file_name("logspec.toml"),
-        )
-        .context("can't start logger")
+    /// service command ( install | uninstall | start | stop | run )
+    /// "run" is used for windows service entrypoint
+    #[cfg(windows)]
+    #[clap(long)]
+    service: Option<serivce::ServiceCommand>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
     let logger = create_logger(args.verbose)?;
-    log_panics::init();
+
+    #[cfg(windows)]
+    if args.service.is_some() {
+        return serivce::main(
+            args.url,
+            args.method,
+            args.interval,
+            args.service.clone().take().unwrap(),
+        );
+    }
 
     println!("swatchdog v{} started!", env!("CARGO_PKG_VERSION"));
 
