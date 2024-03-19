@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Context, Result};
 use humantime::format_duration;
 use pinger::ping;
 use reqwest::blocking::Client;
@@ -20,7 +21,6 @@ struct SenderParams {
     client: Client,
     url: Url,
     method: Method,
-    verbose: bool,
     interval: Duration,
 }
 
@@ -84,9 +84,7 @@ fn send_heartbeat(params: &SenderParams, uptime: &str, ping: &str) {
         .append_pair("msg", uptime)
         .append_pair("ping", ping);
 
-    if params.verbose {
-        eprint!("{} {} -> ", params.method, url);
-    }
+    log::info!("{} {}", params.method, url);
 
     let result = params
         .client
@@ -95,9 +93,9 @@ fn send_heartbeat(params: &SenderParams, uptime: &str, ping: &str) {
         .and_then(|res| res.error_for_status());
 
     if let Err(err) = result {
-        eprintln!("Error: {}", err)
-    } else if params.verbose {
-        eprintln!("Success");
+        log::error!("Error: {}", err)
+    } else {
+        log::info!("Success");
     }
 }
 
@@ -121,7 +119,6 @@ pub struct Watchdog {
     url: reqwest::Url,
     method: Method,
     interval: Duration,
-    verbose: bool,
     host: String,
     shutdown_rx: mpsc::Receiver<Nothing>,
 }
@@ -131,38 +128,44 @@ impl Watchdog {
         url: reqwest::Url,
         method: Method,
         interval: Duration,
-        verbose: bool,
         shutdown_rx: mpsc::Receiver<Nothing>,
-    ) -> Watchdog {
-        let url = Url::parse(url.as_str()).expect("parse url");
-        let host: String = url.host().expect("no host in url").to_string();
-        Watchdog {
+    ) -> Result<Watchdog> {
+        let url = Url::parse(url.as_str()).context("parse url")?;
+        let host: String = url.host().context("no host in url")?.to_string();
+
+        if !url.scheme().contains("http") {
+            return Err(anyhow!("URL scheme is not allowed: {}", url.scheme()));
+        }
+
+        Ok(Watchdog {
             url,
             method,
             interval,
-            verbose,
             host,
             shutdown_rx,
-        }
+        })
     }
 
-    pub fn run(self) {
+    pub fn run(self) -> Result<()> {
         let params = SenderParams {
             client: Client::new(),
             url: self.url.clone(),
             method: self.method.clone(),
-            verbose: self.verbose,
             interval: self.interval,
         };
 
         let (tx, rx) = mpsc::sync_channel::<Message>(1);
-        [
+        for handle in [
             thread::spawn(move || {
                 info_getter_thread(self.host, self.interval, tx, self.shutdown_rx)
             }),
             thread::spawn(move || heartbeat_sender_thread(params, rx)),
-        ]
-        .into_iter()
-        .for_each(|handle| handle.join().expect("thread panic"));
+        ] {
+            handle
+                .join()
+                .map_err(|e| anyhow!("thread panic: {:?}", e))?
+        }
+
+        Ok(())
     }
 }
