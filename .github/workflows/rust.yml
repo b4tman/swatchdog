@@ -18,7 +18,7 @@ jobs:
         include:
           - name: linux
             os: ubuntu-latest
-          - target: windows
+          - name: windows
             os: windows-latest
             
     runs-on: ${{ matrix.os }}
