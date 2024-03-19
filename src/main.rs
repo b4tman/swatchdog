@@ -1,10 +1,10 @@
-use std::thread;
-use std::time::Duration;
 use clap::Parser;
-use parse_duration::{parse as parse_duration};
+use parse_duration::parse as parse_duration;
 use reqwest::blocking::Client;
 use reqwest::Method;
 use reqwest::Url;
+use std::thread;
+use std::time::Duration;
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version)]
@@ -35,7 +35,10 @@ fn main() {
                 eprint!("Send request to {} ... ", args.url);
             }
 
-            let result = client.request(args.method, args.url).send().and_then(|res| res.error_for_status());
+            let result = client
+                .request(args.method, args.url)
+                .send()
+                .and_then(|res| res.error_for_status());
 
             if let Err(err) = result {
                 eprintln!("Error: {}", err)
