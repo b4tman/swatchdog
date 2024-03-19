@@ -1,0 +1,34 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    strategy:
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+          - target: windows
+            os: windows-latest
+            
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --release
+    - uses: actions/upload-artifact@v3
+      with:
+        name: swatchdog-${{ matrix.name }}
+        path: target/release/swatchdog${{matrix.name == 'windows' && '.exe' || ''}}
+        if-no-files-found: error
+  
