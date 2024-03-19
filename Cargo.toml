@@ -8,5 +8,10 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.4.3", features = ["derive"] }
+ctrlc = "3.4.4"
 parse_duration = "2.1.1"
 reqwest = { version = "0.11.20", default-features = false, features = ["blocking", "rustls-tls", "rustls-tls-native-roots"] }
+humantime = "2.1.0"
+pinger="1.1.1"
+sysinfo = "0.30.7"
+url="2.5.0"
