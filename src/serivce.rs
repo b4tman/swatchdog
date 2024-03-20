@@ -1,8 +1,8 @@
-use anyhow::{Ok, Result};
-use humantime::format_duration;
-use parse_duration::parse as parse_duration;
-use reqwest::{Method, Url};
-use std::{ffi::OsString, path::Path, sync::mpsc, thread, time::Duration};
+use crate::args::{self, ServiceCommand};
+use crate::watchdog::create_shutdown_chanel;
+use anyhow::{anyhow, Ok, Result};
+use std::sync::Mutex;
+use std::{ffi::OsString, thread, time::Duration};
 use windows_service::{
     define_windows_service,
     service::{
@@ -13,82 +13,17 @@ use windows_service::{
     service_dispatcher,
     service_manager::{ServiceManager, ServiceManagerAccess},
 };
-use winreg::enums::*;
-use winreg::RegKey;
-
-use crate::{
-    args::{self, ServiceCommand},
-    watchdog::{Nothing, Watchdog},
-};
 
 const SERVICE_NAME: &str = env!("CARGO_PKG_NAME");
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 const SERVICE_DISPLAY: &str = env!("CARGO_PKG_NAME");
 const SERVICE_DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
 
-#[derive(Debug)]
-struct Config {
-    url: Url,
-    method: Method,
-    interval: Duration,
-    _key: RegKey,
-}
+// for pass ImagePath args to ffi_service_main
+static RUN_ARGS: Mutex<Option<args::Args>> = Mutex::new(None);
 
-impl Config {
-    fn new(url: Url, method: Method, interval: Duration) -> Result<Self> {
-        Ok(Self {
-            url,
-            method,
-            interval,
-            _key: Self::reg_key()?,
-        })
-    }
-
-    fn get() -> Result<Self> {
-        let _key = Self::reg_key()?;
-        let url: String = _key.get_value("url")?;
-        let url: Url = url.parse()?;
-
-        let method: String = _key.get_value("method")?;
-        let method: Method = method.parse()?;
-
-        let interval: String = _key.get_value("interval")?;
-        let interval: Duration = parse_duration(&interval)?;
-
-        Ok(Self {
-            url,
-            method,
-            interval,
-            _key,
-        })
-    }
-
-    fn save(self) -> Result<()> {
-        self._key.set_value("url", &self.url.to_string())?;
-        self._key.set_value("method", &self.method.to_string())?;
-        self._key
-            .set_value("interval", &format_duration(self.interval).to_string())?;
-        Ok(())
-    }
-
-    fn name() -> &'static str {
-        env!("CARGO_PKG_NAME")
-    }
-
-    fn reg_key() -> Result<RegKey> {
-        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let path = Path::new("Software").join(Self::name()).join(Self::name());
-        let result = hkcu.create_subkey(path);
-        if let Err(e) = &result {
-            log::error!("reg_key error: {:#?}", &e);
-        }
-        let (key, _) = result?;
-        Ok(key)
-    }
-}
-
-pub fn main(mut args: args::Args) -> Result<()> {
-    match args.service.take().unwrap() {
+pub fn main(args: args::Args) -> Result<()> {
+    match args.service.as_ref().unwrap() {
         ServiceCommand::Install => install(args),
         ServiceCommand::Uninstall => uninstall(),
         ServiceCommand::Run => run(args),
@@ -211,10 +146,8 @@ pub fn start() -> Result<()> {
 
 pub fn run(args: args::Args) -> Result<()> {
     log::info!("service run");
-    let config = Config::new(args.url, args.method, args.interval)?;
-    config.save()?;
+    RUN_ARGS.lock().expect("lock args").replace(args);
     service_dispatcher::start(SERVICE_NAME, ffi_service_main)?;
-
     Ok(())
 }
 
@@ -227,7 +160,7 @@ pub fn my_service_main(_arguments: Vec<OsString>) {
 }
 
 pub fn run_service() -> Result<()> {
-    let (shutdown_tx, shutdown_rx) = mpsc::sync_channel::<Nothing>(1);
+    let (shutdown_tx, shutdown_rx) = create_shutdown_chanel();
     let mut shutdown = Some(shutdown_tx);
 
     let event_handler = move |control_event| -> ServiceControlHandlerResult {
@@ -248,14 +181,12 @@ pub fn run_service() -> Result<()> {
 
     log::info!("service started");
 
-    let config = Config::get()?;
-    let watchdog = Watchdog::new(
-        config.url,
-        config.method,
-        config.interval,
-        shutdown_rx,
-        false,
-    );
+    let args = RUN_ARGS
+        .lock()
+        .expect("lock args")
+        .take()
+        .ok_or(anyhow!("no args in run_service"))?;
+    let watchdog = args.create_watchdog(shutdown_rx);
 
     if let Err(e) = watchdog {
         log::error!("error create watchdod: {:#?}", e);
