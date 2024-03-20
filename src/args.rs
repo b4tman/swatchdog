@@ -1,4 +1,4 @@
-use std::{sync::mpsc::Receiver, time::Duration};
+use std::{net::IpAddr, sync::mpsc::Receiver, time::Duration};
 
 #[allow(unused)]
 use anyhow::anyhow;
@@ -77,6 +77,10 @@ pub struct Args {
     #[arg(short = 'k', long, default_value = "false")]
     pub insecure: bool,
 
+    /// optional local ip ("0.0.0.0" for ipv4, "::" for ipv6)
+    #[arg(short = 's', long = "from")]
+    pub local_address: Option<IpAddr>,
+
     /// verbose messages
     #[arg(long, default_value = "false")]
     pub verbose: bool,
@@ -94,8 +98,9 @@ impl Args {
             self.url,
             self.method,
             self.interval,
-            shutdown_rx,
             self.insecure,
+            self.local_address,
+            shutdown_rx,
         )
     }
 
@@ -117,6 +122,11 @@ impl Args {
 
         if self.insecure {
             result.push("--insecure".into());
+        }
+
+        if self.local_address.is_some() {
+            result.push("--from".into());
+            result.push(self.local_address.as_ref().unwrap().to_string());
         }
 
         if self.verbose {

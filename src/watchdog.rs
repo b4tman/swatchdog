@@ -5,6 +5,7 @@ use reqwest::blocking::Client;
 use reqwest::Method;
 use std::cmp::min;
 use std::marker::PhantomData;
+use std::net::IpAddr;
 use std::thread;
 use std::{
     sync::mpsc::{self, RecvTimeoutError},
@@ -126,6 +127,7 @@ pub struct Watchdog {
     host: String,
     shutdown_rx: mpsc::Receiver<Nothing>,
     ignore_cert_errors: bool,
+    local_address: Option<IpAddr>,
 }
 
 impl Watchdog {
@@ -133,8 +135,9 @@ impl Watchdog {
         url: reqwest::Url,
         method: Method,
         interval: Duration,
-        shutdown_rx: mpsc::Receiver<Nothing>,
         ignore_cert_errors: bool,
+        local_address: Option<IpAddr>,
+        shutdown_rx: mpsc::Receiver<Nothing>,
     ) -> Result<Watchdog> {
         let url = Url::parse(url.as_str()).context("parse url")?;
         let host: String = url.host().context("no host in url")?.to_string();
@@ -148,8 +151,9 @@ impl Watchdog {
             method,
             interval,
             host,
-            shutdown_rx,
             ignore_cert_errors,
+            local_address,
+            shutdown_rx,
         })
     }
 
@@ -157,9 +161,10 @@ impl Watchdog {
         let params = SenderParams {
             client: reqwest::blocking::Client::builder()
                 .danger_accept_invalid_certs(self.ignore_cert_errors)
+                .local_address(self.local_address)
                 .build()?,
-            url: self.url.clone(),
-            method: self.method.clone(),
+            url: self.url,
+            method: self.method,
             interval: self.interval,
         };
 
