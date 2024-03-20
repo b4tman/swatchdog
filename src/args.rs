@@ -125,9 +125,9 @@ impl Args {
 
         #[cfg(windows)]
         if self.service.is_some() {
-            let service = self.service.clone().unwrap();
+            let service = self.service.as_ref().unwrap();
             result.push("--service".into());
-            result.push((&service).into());
+            result.push(service.into());
         }
 
         result
