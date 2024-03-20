@@ -146,7 +146,10 @@ pub fn start() -> Result<()> {
 
 pub fn run(args: args::Args) -> Result<()> {
     log::info!("service run");
-    RUN_ARGS.lock().expect("lock args").replace(args);
+    RUN_ARGS
+        .lock()
+        .map_err(|e| anyhow!("lock args for set error: {}", e))?
+        .replace(args);
     service_dispatcher::start(SERVICE_NAME, ffi_service_main)?;
     Ok(())
 }
@@ -183,7 +186,7 @@ pub fn run_service() -> Result<()> {
 
     let args = RUN_ARGS
         .lock()
-        .expect("lock args")
+        .map_err(|e| anyhow!("lock args for get error: {}", e))?
         .take()
         .ok_or(anyhow!("no args in run_service"))?;
     let watchdog = args.create_watchdog(shutdown_rx);
@@ -203,5 +206,6 @@ pub fn run_service() -> Result<()> {
 
     status_handle.set_service_status(ServiceStatus::stopped())?;
     log::info!("service stoped");
+
     Ok(())
 }

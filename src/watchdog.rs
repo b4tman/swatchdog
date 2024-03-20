@@ -4,7 +4,6 @@ use pinger::ping;
 use reqwest::blocking::Client;
 use reqwest::Method;
 use std::cmp::min;
-use std::marker::PhantomData;
 use std::net::IpAddr;
 use std::thread;
 use std::{
@@ -25,29 +24,24 @@ struct SenderParams {
     interval: Duration,
 }
 
-pub type Nothing = PhantomData<Option<bool>>;
-
 fn get_uptime() -> String {
     let dur = Duration::from_secs(System::uptime());
     format!("up {}", format_duration(dur))
 }
 
-fn ping_host(host: &str) -> Result<Duration, Nothing> {
-    let stream = ping(host.into(), None);
-    if stream.is_err() {
-        return Err(PhantomData);
-    }
-    if let Ok(pinger::PingResult::Pong(duration, _)) = stream.unwrap().recv() {
+fn ping_host(host: &str) -> Result<Duration> {
+    let stream = ping(host.into(), None)?;
+    if let Ok(pinger::PingResult::Pong(duration, _)) = stream.recv() {
         return Ok(duration);
     }
-    Err(PhantomData)
+    Err(anyhow!("ping error"))
 }
 
 fn info_getter_thread(
     host: String,
     interval: Duration,
     tx: mpsc::SyncSender<Message>,
-    shutdown_rx: mpsc::Receiver<Nothing>,
+    shutdown_rx: mpsc::Receiver<()>,
 ) {
     let mut measure_time = Duration::new(0, 0);
     loop {
@@ -116,8 +110,8 @@ fn heartbeat_sender_thread(params: SenderParams, rx: mpsc::Receiver<Message>) {
     }
 }
 
-pub fn create_shutdown_chanel() -> (mpsc::SyncSender<Nothing>, mpsc::Receiver<Nothing>) {
-    mpsc::sync_channel::<Nothing>(1)
+pub fn create_shutdown_chanel() -> (mpsc::SyncSender<()>, mpsc::Receiver<()>) {
+    mpsc::sync_channel::<()>(1)
 }
 
 pub struct Watchdog {
@@ -125,7 +119,7 @@ pub struct Watchdog {
     method: Method,
     interval: Duration,
     host: String,
-    shutdown_rx: mpsc::Receiver<Nothing>,
+    shutdown_rx: mpsc::Receiver<()>,
     ignore_cert_errors: bool,
     local_address: Option<IpAddr>,
 }
@@ -137,7 +131,7 @@ impl Watchdog {
         interval: Duration,
         ignore_cert_errors: bool,
         local_address: Option<IpAddr>,
-        shutdown_rx: mpsc::Receiver<Nothing>,
+        shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<Watchdog> {
         let url = Url::parse(url.as_str()).context("parse url")?;
         let host: String = url.host().context("no host in url")?.to_string();

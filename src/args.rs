@@ -11,7 +11,7 @@ use humantime::format_duration;
 use parse_duration::parse as parse_duration;
 use reqwest::Method;
 
-use crate::watchdog::{Nothing, Watchdog};
+use crate::watchdog::Watchdog;
 
 #[cfg(windows)]
 #[derive(Debug, Clone)]
@@ -93,7 +93,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn create_watchdog(self, shutdown_rx: Receiver<Nothing>) -> Result<Watchdog> {
+    pub fn create_watchdog(self, shutdown_rx: Receiver<()>) -> Result<Watchdog> {
         Watchdog::new(
             self.url,
             self.method,
