@@ -5,7 +5,7 @@ mod watchdog;
 use clap::Parser;
 use logger::create_logger;
 
-use crate::watchdog::create_shutdown_chanel;
+use crate::watchdog::Watchdog;
 
 #[cfg(windows)]
 mod serivce;
@@ -21,8 +21,8 @@ fn main() -> Result<()> {
 
     println!("swatchdog v{} started!", env!("CARGO_PKG_VERSION"));
 
-    let (shutdown_tx, shutdown_rx) = create_shutdown_chanel();
-    let mut shutdown = Some(shutdown_tx);
+    let mut watchdog = Watchdog::try_from(args)?;
+    let mut shutdown = watchdog.take_shutdown_tx();
 
     let res = ctrlc::set_handler(move || {
         println!("recieved Ctrl-C");
@@ -33,7 +33,6 @@ fn main() -> Result<()> {
         println!("Press Ctrl-C to stop");
     }
 
-    let watchdog = args.create_watchdog(shutdown_rx)?;
     watchdog.run()?;
 
     log::info!("bye!");

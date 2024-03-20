@@ -1,5 +1,5 @@
 use crate::args::{self, ServiceCommand};
-use crate::watchdog::create_shutdown_chanel;
+use crate::watchdog::Watchdog;
 use anyhow::{anyhow, Ok, Result};
 use std::sync::Mutex;
 use std::{ffi::OsString, thread, time::Duration};
@@ -163,8 +163,26 @@ pub fn my_service_main(_arguments: Vec<OsString>) {
 }
 
 pub fn run_service() -> Result<()> {
-    let (shutdown_tx, shutdown_rx) = create_shutdown_chanel();
-    let mut shutdown = Some(shutdown_tx);
+    log::info!("service started");
+
+    let args = RUN_ARGS
+        .lock()
+        .map_err(|e| anyhow!("lock args for get error: {}", e))?
+        .take()
+        .ok_or(anyhow!("no args in run_service"))?;
+
+    let watchdog = Watchdog::try_from(args);
+    if let Err(e) = watchdog {
+        log::error!("error create watchdod: {:#?}", e);
+        let status_handle = service_control_handler::register(SERVICE_NAME, move |_| {
+            ServiceControlHandlerResult::NotImplemented
+        })?;
+        status_handle.set_service_status(ServiceStatus::stopped_with_error(1))?;
+        return Err(e);
+    }
+    let mut watchdog = watchdog.unwrap();
+    let mut shutdown = watchdog.take_shutdown_tx();
+    let watchdog = watchdog;
 
     let event_handler = move |control_event| -> ServiceControlHandlerResult {
         match control_event {
@@ -182,22 +200,7 @@ pub fn run_service() -> Result<()> {
     let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)?;
     status_handle.set_service_status(ServiceStatus::running())?;
 
-    log::info!("service started");
-
-    let args = RUN_ARGS
-        .lock()
-        .map_err(|e| anyhow!("lock args for get error: {}", e))?
-        .take()
-        .ok_or(anyhow!("no args in run_service"))?;
-    let watchdog = args.create_watchdog(shutdown_rx);
-
-    if let Err(e) = watchdog {
-        log::error!("error create watchdod: {:#?}", e);
-        status_handle.set_service_status(ServiceStatus::stopped_with_error(1))?;
-        return Err(e);
-    }
-
-    let result = watchdog.unwrap().run();
+    let result = watchdog.run();
     if let Err(e) = result {
         log::error!("error run watchdod: {:#?}", e);
         status_handle.set_service_status(ServiceStatus::stopped_with_error(2))?;

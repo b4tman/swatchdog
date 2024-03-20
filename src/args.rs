@@ -1,17 +1,14 @@
-use std::{net::IpAddr, sync::mpsc::Receiver, time::Duration};
+use std::{net::IpAddr, time::Duration};
 
 #[allow(unused)]
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 #[allow(unused)]
 use std::str::FromStr;
 
-use anyhow::Result;
 use clap::Parser;
 use humantime::format_duration;
 use parse_duration::parse as parse_duration;
 use reqwest::Method;
-
-use crate::watchdog::Watchdog;
 
 #[cfg(windows)]
 #[derive(Debug, Clone)]
@@ -93,17 +90,6 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn create_watchdog(self, shutdown_rx: Receiver<()>) -> Result<Watchdog> {
-        Watchdog::new(
-            self.url,
-            self.method,
-            self.interval,
-            self.insecure,
-            self.local_address,
-            shutdown_rx,
-        )
-    }
-
     #[allow(unused)]
     pub fn render(&self) -> Vec<String> {
         let mut result = vec![];

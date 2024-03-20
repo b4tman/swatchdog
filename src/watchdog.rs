@@ -13,6 +13,8 @@ use std::{
 use sysinfo::System;
 use url::Url;
 
+use crate::args;
+
 enum Message {
     HostInfo(String, String),
 }
@@ -119,22 +121,21 @@ pub struct Watchdog {
     method: Method,
     interval: Duration,
     host: String,
-    shutdown_rx: mpsc::Receiver<()>,
     ignore_cert_errors: bool,
     local_address: Option<IpAddr>,
+    shutdown_tx: Option<mpsc::SyncSender<()>>,
+    shutdown_rx: mpsc::Receiver<()>,
 }
 
-impl Watchdog {
-    pub fn new(
-        url: reqwest::Url,
-        method: Method,
-        interval: Duration,
-        ignore_cert_errors: bool,
-        local_address: Option<IpAddr>,
-        shutdown_rx: mpsc::Receiver<()>,
-    ) -> Result<Watchdog> {
-        let url = Url::parse(url.as_str()).context("parse url")?;
+impl TryFrom<args::Args> for Watchdog {
+    type Error = anyhow::Error;
+
+    fn try_from(args: args::Args) -> std::prelude::v1::Result<Self, Self::Error> {
+        let url = Url::parse(args.url.as_str()).context("parse url")?;
         let host: String = url.host().context("no host in url")?.to_string();
+
+        let (shutdown_tx, shutdown_rx) = create_shutdown_chanel();
+        let shutdown_tx = Some(shutdown_tx);
 
         if !url.scheme().contains("http") {
             return Err(anyhow!("URL scheme is not allowed: {}", url.scheme()));
@@ -142,15 +143,21 @@ impl Watchdog {
 
         Ok(Watchdog {
             url,
-            method,
-            interval,
+            method: args.method,
+            interval: args.interval,
             host,
-            ignore_cert_errors,
-            local_address,
+            ignore_cert_errors: args.insecure,
+            local_address: args.local_address,
+            shutdown_tx,
             shutdown_rx,
         })
     }
+}
 
+impl Watchdog {
+    pub fn take_shutdown_tx(&mut self) -> Option<mpsc::SyncSender<()>> {
+        self.shutdown_tx.take()
+    }
     pub fn run(self) -> Result<()> {
         let params = SenderParams {
             client: reqwest::blocking::Client::builder()
@@ -163,12 +170,13 @@ impl Watchdog {
         };
 
         let (tx, rx) = mpsc::sync_channel::<Message>(1);
-        for handle in [
+        let handles = [
             thread::spawn(move || {
                 info_getter_thread(self.host, self.interval, tx, self.shutdown_rx)
             }),
             thread::spawn(move || heartbeat_sender_thread(params, rx)),
-        ] {
+        ];
+        for handle in handles {
             handle
                 .join()
                 .map_err(|e| anyhow!("thread panic: {:?}", e))?
