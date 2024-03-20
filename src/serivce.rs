@@ -1,8 +1,8 @@
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{Ok, Result};
 use humantime::format_duration;
 use parse_duration::parse as parse_duration;
 use reqwest::{Method, Url};
-use std::{ffi::OsString, path::Path, str::FromStr, sync::mpsc, thread, time::Duration};
+use std::{ffi::OsString, path::Path, sync::mpsc, thread, time::Duration};
 use windows_service::{
     define_windows_service,
     service::{
@@ -16,7 +16,10 @@ use windows_service::{
 use winreg::enums::*;
 use winreg::RegKey;
 
-use crate::watchdog::{Nothing, Watchdog};
+use crate::{
+    args::{self, ServiceCommand},
+    watchdog::{Nothing, Watchdog},
+};
 
 const SERVICE_NAME: &str = env!("CARGO_PKG_NAME");
 const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
@@ -84,46 +87,11 @@ impl Config {
     }
 }
 
-#[derive(Debug, Clone)]
-/// service commands
-pub enum ServiceCommand {
-    /// install service
-    Install,
-    /// uninstall service
-    Uninstall,
-    /// start service
-    Start,
-    /// stop service
-    Stop,
-    /// run service (by Windows)
-    Run,
-}
-
-#[cfg(windows)]
-impl FromStr for ServiceCommand {
-    type Err = anyhow::Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_ascii_lowercase().as_str() {
-            "install" => Ok(ServiceCommand::Install),
-            "uninstall" => Ok(ServiceCommand::Uninstall),
-            "start" => Ok(ServiceCommand::Start),
-            "stop" => Ok(ServiceCommand::Stop),
-            "run" => Ok(ServiceCommand::Run),
-            _ => Err(anyhow!("unknown service command")),
-        }
-    }
-}
-
-pub fn main(
-    url: reqwest::Url,
-    method: reqwest::Method,
-    interval: Duration,
-    command: ServiceCommand,
-) -> Result<()> {
-    match command {
-        ServiceCommand::Install => install(url, method, interval),
+pub fn main(mut args: args::Args) -> Result<()> {
+    match args.service.take().unwrap() {
+        ServiceCommand::Install => install(args),
         ServiceCommand::Uninstall => uninstall(),
-        ServiceCommand::Run => run(url, method, interval),
+        ServiceCommand::Run => run(args),
         ServiceCommand::Start => start(),
         ServiceCommand::Stop => stop(),
     }
@@ -164,11 +132,14 @@ impl ServiceStatusEx for ServiceStatus {
     }
 }
 
-pub fn install(url: reqwest::Url, method: reqwest::Method, interval: Duration) -> Result<()> {
+pub fn install(args: args::Args) -> Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
     let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
 
     let service_binary_path = std::env::current_exe()?;
+
+    let mut args = args;
+    args.service = Some(ServiceCommand::Run);
 
     let service_info = ServiceInfo {
         name: SERVICE_NAME.into(),
@@ -177,16 +148,7 @@ pub fn install(url: reqwest::Url, method: reqwest::Method, interval: Duration) -
         start_type: ServiceStartType::OnDemand,
         error_control: ServiceErrorControl::Normal,
         executable_path: service_binary_path,
-        launch_arguments: vec![
-            "--url".into(),
-            url.to_string().as_str().into(),
-            "--method".into(),
-            method.to_string().as_str().into(),
-            "--interval".into(),
-            format_duration(interval).to_string().as_str().into(),
-            "--service".into(),
-            "run".into(),
-        ],
+        launch_arguments: args.render().iter().map(|x| x.into()).collect(),
         dependencies: vec![],
         account_name: Some(OsString::from(r#"NT AUTHORITY\NetworkService"#)),
         account_password: None,
@@ -247,9 +209,9 @@ pub fn start() -> Result<()> {
     Ok(())
 }
 
-pub fn run(url: reqwest::Url, method: reqwest::Method, interval: Duration) -> Result<()> {
+pub fn run(args: args::Args) -> Result<()> {
     log::info!("service run");
-    let config = Config::new(url, method, interval)?;
+    let config = Config::new(args.url, args.method, args.interval)?;
     config.save()?;
     service_dispatcher::start(SERVICE_NAME, ffi_service_main)?;
 
@@ -287,7 +249,13 @@ pub fn run_service() -> Result<()> {
     log::info!("service started");
 
     let config = Config::get()?;
-    let watchdog = Watchdog::new(config.url, config.method, config.interval, shutdown_rx);
+    let watchdog = Watchdog::new(
+        config.url,
+        config.method,
+        config.interval,
+        shutdown_rx,
+        false,
+    );
 
     if let Err(e) = watchdog {
         log::error!("error create watchdod: {:#?}", e);

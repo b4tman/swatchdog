@@ -121,6 +121,7 @@ pub struct Watchdog {
     interval: Duration,
     host: String,
     shutdown_rx: mpsc::Receiver<Nothing>,
+    ignore_cert_errors: bool,
 }
 
 impl Watchdog {
@@ -129,6 +130,7 @@ impl Watchdog {
         method: Method,
         interval: Duration,
         shutdown_rx: mpsc::Receiver<Nothing>,
+        ignore_cert_errors: bool,
     ) -> Result<Watchdog> {
         let url = Url::parse(url.as_str()).context("parse url")?;
         let host: String = url.host().context("no host in url")?.to_string();
@@ -143,12 +145,15 @@ impl Watchdog {
             interval,
             host,
             shutdown_rx,
+            ignore_cert_errors,
         })
     }
 
     pub fn run(self) -> Result<()> {
         let params = SenderParams {
-            client: Client::new(),
+            client: reqwest::blocking::Client::builder()
+                .danger_accept_invalid_certs(self.ignore_cert_errors)
+                .build()?,
             url: self.url.clone(),
             method: self.method.clone(),
             interval: self.interval,

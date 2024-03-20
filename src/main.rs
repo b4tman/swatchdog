@@ -1,57 +1,24 @@
-use std::{sync::mpsc, time::Duration};
+use std::sync::mpsc;
 
 use anyhow::Result;
-use clap::Parser;
-use parse_duration::parse as parse_duration;
-use reqwest::Method;
-
-mod watchdog;
-use watchdog::{Nothing, Watchdog};
-
+mod args;
 mod logger;
+mod watchdog;
+use clap::Parser;
 use logger::create_logger;
+
+use crate::watchdog::Nothing;
 
 #[cfg(windows)]
 mod serivce;
 
-#[derive(Parser, Debug, Clone)]
-#[command(author, version)]
-struct Args {
-    /// target url
-    #[arg(short, long)]
-    url: reqwest::Url,
-
-    /// http method
-    #[arg(long, default_value = "GET")]
-    method: Method,
-
-    /// heartbeats interval
-    #[arg(long, default_value = "60s", value_parser = parse_duration)]
-    interval: Duration,
-
-    /// verbose messages
-    #[arg(long, default_value = "false")]
-    verbose: bool,
-
-    /// service command ( install | uninstall | start | stop | run )
-    /// "run" is used for windows service entrypoint
-    #[cfg(windows)]
-    #[clap(long)]
-    service: Option<serivce::ServiceCommand>,
-}
-
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = args::Args::parse();
     let logger = create_logger(args.verbose)?;
 
     #[cfg(windows)]
     if args.service.is_some() {
-        return serivce::main(
-            args.url,
-            args.method,
-            args.interval,
-            args.service.clone().take().unwrap(),
-        );
+        return serivce::main(args);
     }
 
     println!("swatchdog v{} started!", env!("CARGO_PKG_VERSION"));
@@ -68,7 +35,7 @@ fn main() -> Result<()> {
         println!("Press Ctrl-C to stop");
     }
 
-    let watchdog = Watchdog::new(args.url, args.method, args.interval, shutdown_rx)?;
+    let watchdog = args.create_watchdog(shutdown_rx)?;
     watchdog.run()?;
 
     log::info!("bye!");
