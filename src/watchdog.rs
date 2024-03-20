@@ -115,6 +115,10 @@ fn heartbeat_sender_thread(params: SenderParams, rx: mpsc::Receiver<Message>) {
     }
 }
 
+pub fn create_shutdown_chanel() -> (mpsc::SyncSender<Nothing>, mpsc::Receiver<Nothing>) {
+    mpsc::sync_channel::<Nothing>(1)
+}
+
 pub struct Watchdog {
     url: reqwest::Url,
     method: Method,

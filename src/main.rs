@@ -1,5 +1,3 @@
-use std::sync::mpsc;
-
 use anyhow::Result;
 mod args;
 mod logger;
@@ -7,7 +5,7 @@ mod watchdog;
 use clap::Parser;
 use logger::create_logger;
 
-use crate::watchdog::Nothing;
+use crate::watchdog::create_shutdown_chanel;
 
 #[cfg(windows)]
 mod serivce;
@@ -23,7 +21,7 @@ fn main() -> Result<()> {
 
     println!("swatchdog v{} started!", env!("CARGO_PKG_VERSION"));
 
-    let (shutdown_tx, shutdown_rx) = mpsc::sync_channel::<Nothing>(1);
+    let (shutdown_tx, shutdown_rx) = create_shutdown_chanel();
     let mut shutdown = Some(shutdown_tx);
 
     let res = ctrlc::set_handler(move || {
