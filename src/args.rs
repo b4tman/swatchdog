@@ -10,6 +10,8 @@ use humantime::format_duration;
 use parse_duration::parse as parse_duration;
 use reqwest::Method;
 
+use crate::logger::LogConfig;
+
 #[cfg(windows)]
 #[derive(Debug, Clone)]
 /// service commands
@@ -82,6 +84,12 @@ pub struct Args {
     #[arg(long, default_value = "false")]
     pub verbose: bool,
 
+    /// optional log variant (none | stdout | stderr | file | dir )
+    /// default is dir, one of (current_exe, current_dir) + stdout,
+    /// if writable dir found, or just stdout
+    #[clap(long)]
+    pub log: Option<LogConfig>,
+
     /// service command ( install | uninstall | start | stop | run )
     /// "run" is used for windows service entrypoint
     #[cfg(windows)]
@@ -117,6 +125,11 @@ impl Args {
 
         if self.verbose {
             result.push("--verbose".into());
+        }
+
+        if self.log.is_some() {
+            result.push("--log".into());
+            result.push(self.log.as_ref().unwrap().into());
         }
 
         #[cfg(windows)]

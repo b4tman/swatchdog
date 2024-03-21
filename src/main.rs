@@ -6,13 +6,14 @@ use clap::Parser;
 use logger::create_logger;
 
 use crate::watchdog::Watchdog;
+use args::Args;
 
 #[cfg(windows)]
 mod serivce;
 
 fn main() -> Result<()> {
-    let args = args::Args::parse();
-    let logger = create_logger(args.verbose)?;
+    let args = Args::parse();
+    let logger = create_logger(&args)?;
 
     #[cfg(windows)]
     if args.service.is_some() {
