@@ -188,6 +188,8 @@ impl Watchdog {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[test]
@@ -217,5 +219,27 @@ mod tests {
         send_heartbeat(&params, "test_uptime", "test_ping");
 
         // on Drop the server will assert all expectations have been met and will panic if not.
+    }
+
+    #[test]
+    fn shutdown_test() {
+        let (tx, rx) = create_shutdown_chanel();
+        let mut wd = Watchdog {
+            url: "http://localhost".parse().unwrap(),
+            method: Method::GET,
+            interval: Duration::from_millis(100),
+            host: "localhost".parse().unwrap(),
+            ignore_cert_errors: true,
+            local_address: None,
+            shutdown_tx: Some(tx),
+            shutdown_rx: rx,
+        };
+
+        let mut shutdown = wd.take_shutdown_tx();
+
+        let t = thread::spawn(move || wd.run());
+        shutdown.take();
+        thread::sleep(Duration::from_millis(50));
+        assert!(t.is_finished());
     }
 }
