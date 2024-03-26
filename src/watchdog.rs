@@ -185,3 +185,37 @@ impl Watchdog {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn send_heartbeat_test() {
+        use httptest::{matchers::*, responders::*, Expectation, Server};
+        let server = Server::run();
+        server.expect(
+            Expectation::matching(all_of![
+                request::method_path("GET", "/foo"),
+                request::query(url_decoded(all_of![
+                    contains(("status", "up")),
+                    contains(("msg", "test_uptime")),
+                    contains(("ping", "test_ping")),
+                ])),
+            ])
+            .respond_with(status_code(200)),
+        );
+
+        let url: Url = server.url("/foo").to_string().parse().unwrap();
+        let client = Client::new();
+        let params = SenderParams {
+            client,
+            url,
+            method: Method::GET,
+            interval: Duration::from_millis(0),
+        };
+        send_heartbeat(&params, "test_uptime", "test_ping");
+
+        // on Drop the server will assert all expectations have been met and will panic if not.
+    }
+}
