@@ -242,4 +242,19 @@ mod tests {
         thread::sleep(Duration::from_millis(50));
         assert!(t.is_finished());
     }
+
+    #[test]
+    fn get_uptime_test() {
+        let uptime1 = get_uptime();
+        assert!(uptime1.starts_with("up "));
+
+        thread::sleep(Duration::from_secs(1));
+        let uptime2 = get_uptime();
+        assert_ne!(uptime1, uptime2);
+    }
+
+    #[test]
+    fn ping_localhost() {
+        ping_host("localhost").unwrap();
+    }
 }
